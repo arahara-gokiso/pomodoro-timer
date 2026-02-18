@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>時計同期ポモドーロ</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Shippori+Mincho:wght@400;700&family=DM+Mono:wght@300;400&display=swap');
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --work-bg: #1a1410;
+    --work-accent: #d4845a;
+    --work-text: #f0e6d3;
+    --rest-bg: #0e1418;
+    --rest-accent: #5a9abd;
+    --rest-text: #d3e8f0;
+    --transition: 1.2s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  body {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: 'DM Mono', monospace;
+    transition: background-color var(--transition), color var(--transition);
+    overflow: hidden;
+    position: relative;
+  }
+
+  body.work {
+    background-color: var(--work-bg);
+    color: var(--work-text);
+  }
+
+  body.rest {
+    background-color: var(--rest-bg);
+    color: var(--rest-text);
+  }
+
+  /* Background texture */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='4' height='4'%3E%3Crect width='1' height='1' fill='%23ffffff08'/%3E%3C/svg%3E");
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .container {
+    position: relative;
+    z-index: 1;
+    text-align: center;
+    padding: 3rem;
+  }
+
+  /* Large progress arc */
+  .arc-wrap {
+    position: relative;
+    width: 320px;
+    height: 320px;
+    margin: 0 auto 2.5rem;
+  }
+
+  .arc-svg {
+    width: 100%;
+    height: 100%;
+    transform: rotate(-90deg);
+  }
+
+  .arc-track {
+    fill: none;
+    stroke-width: 3;
+    transition: stroke var(--transition);
+  }
+
+  body.work .arc-track { stroke: #3a2a1a; }
+  body.rest .arc-track { stroke: #1a2a3a; }
+
+  .arc-fill {
+    fill: none;
+    stroke-width: 3;
+    stroke-linecap: round;
+    transition: stroke var(--transition), stroke-dashoffset 1s linear;
+  }
+
+  body.work .arc-fill { stroke: var(--work-accent); }
+  body.rest .arc-fill { stroke: var(--rest-accent); }
+
+  .arc-center {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    text-align: center;
+  }
+
+  .time-display {
+    font-size: 4rem;
+    font-weight: 300;
+    letter-spacing: 0.05em;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .seconds-display {
+    font-size: 1.2rem;
+    opacity: 0.5;
+    letter-spacing: 0.1em;
+    margin-top: 0.3rem;
+  }
+
+  /* Phase label */
+  .phase-label {
+    font-family: 'Shippori Mincho', serif;
+    font-size: 1.6rem;
+    letter-spacing: 0.3em;
+    margin-bottom: 0.5rem;
+    transition: color var(--transition), opacity var(--transition);
+  }
+
+  body.work .phase-label { color: var(--work-accent); }
+  body.rest .phase-label { color: var(--rest-accent); }
+
+  /* Next phase info */
+  .next-info {
+    font-size: 0.75rem;
+    opacity: 0.45;
+    letter-spacing: 0.15em;
+    margin-top: 1.5rem;
+  }
+
+  /* Real clock */
+  .real-clock {
+    font-size: 0.7rem;
+    opacity: 0.3;
+    letter-spacing: 0.2em;
+    margin-top: 0.8rem;
+  }
+
+  /* Phase timeline bar */
+  .timeline {
+    display: flex;
+    gap: 4px;
+    justify-content: center;
+    margin-top: 2rem;
+  }
+
+  .tl-seg {
+    height: 3px;
+    border-radius: 2px;
+    transition: opacity var(--transition), background-color var(--transition);
+  }
+
+  .tl-work {
+    width: 100px;
+    opacity: 0.3;
+  }
+  .tl-rest {
+    width: 20px;
+    opacity: 0.3;
+  }
+
+  body.work .tl-work { background: var(--work-accent); }
+  body.work .tl-rest { background: #555; }
+  body.rest .tl-work { background: #555; }
+  body.rest .tl-rest { background: var(--rest-accent); }
+
+  .tl-seg.active { opacity: 1; }
+
+  /* Flash on phase change */
+  @keyframes flash {
+    0% { opacity: 1; }
+    30% { opacity: 0; }
+    100% { opacity: 1; }
+  }
+
+  .flash { animation: flash 0.6s ease-out; }
+
+  /* Dot pulse */
+  .pulse-dot {
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    margin-left: 8px;
+    vertical-align: middle;
+    animation: pulse 2s ease-in-out infinite;
+  }
+
+  body.work .pulse-dot { background: var(--work-accent); }
+  body.rest .pulse-dot { background: var(--rest-accent); }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.4; transform: scale(0.6); }
+  }
+</style>
+</head>
+<body class="work">
+<div class="container">
+  <div class="phase-label" id="phaseLabel">作業中<span class="pulse-dot"></span></div>
+
+  <div class="arc-wrap">
+    <svg class="arc-svg" viewBox="0 0 320 320">
+      <circle class="arc-track" cx="160" cy="160" r="148"/>
+      <circle class="arc-fill" id="arcFill" cx="160" cy="160" r="148"
+        stroke-dasharray="930" stroke-dashoffset="0"/>
+    </svg>
+    <div class="arc-center">
+      <div class="time-display" id="timeDisplay">25:00</div>
+      <div class="seconds-display" id="secDisplay">00 s</div>
+    </div>
+  </div>
+
+  <div class="next-info" id="nextInfo">次の休憩まで</div>
+
+  <div class="timeline">
+    <div class="tl-seg tl-work active" id="tl0"></div>
+    <div class="tl-seg tl-rest" id="tl1"></div>
+    <div class="tl-seg tl-work" id="tl2"></div>
+    <div class="tl-seg tl-rest" id="tl3"></div>
+  </div>
+
+  <div class="real-clock" id="realClock">--:--:--</div>
+</div>
+
+<script>
+  // Cycle: :00-:24 work(25min), :25-:29 rest(5min), :30-:54 work(25min), :55-:59 rest(5min)
+  const ARC_CIRC = 2 * Math.PI * 148;
+
+  const phases = [
+    { start: 0,  end: 25, type: 'work', label: '作業中', nextLabel: '次の休憩まで' },
+    { start: 25, end: 30, type: 'rest', label: '休憩中', nextLabel: '次の作業まで' },
+    { start: 30, end: 55, type: 'work', label: '作業中', nextLabel: '次の休憩まで' },
+    { start: 55, end: 60, type: 'rest', label: '休憩中', nextLabel: '次の作業まで' },
+  ];
+
+  let lastPhaseIdx = -1;
+
+  function getPhaseAt(min) {
+    for (let i = 0; i < phases.length; i++) {
+      if (min >= phases[i].start && min < phases[i].end) return i;
+    }
+    return 0;
+  }
+
+  function tick() {
+    const now = new Date();
+    const min = now.getMinutes();
+    const sec = now.getSeconds();
+    const totalSec = min * 60 + sec;
+
+    const idx = getPhaseAt(min);
+    const phase = phases[idx];
+    const phaseDur = (phase.end - phase.start) * 60;
+    const elapsedInPhase = (min - phase.start) * 60 + sec;
+    const remaining = phaseDur - elapsedInPhase;
+
+    const remMin = Math.floor(remaining / 60);
+    const remSec = remaining % 60;
+
+    // Display
+    document.getElementById('timeDisplay').textContent =
+      String(remMin).padStart(2, '0') + ':' + String(remSec).padStart(2, '0');
+    document.getElementById('secDisplay').textContent = String(remSec).padStart(2, '0') + ' s';
+
+    // Arc: progress through current phase
+    const progress = elapsedInPhase / phaseDur;
+    const offset = ARC_CIRC * (1 - progress);
+    document.getElementById('arcFill').style.strokeDashoffset = offset;
+    document.getElementById('arcFill').style.strokeDasharray = ARC_CIRC;
+
+    // Real clock
+    document.getElementById('realClock').textContent =
+      String(now.getHours()).padStart(2,'0') + ':' +
+      String(min).padStart(2,'0') + ':' +
+      String(sec).padStart(2,'0');
+
+    // Phase change
+    if (idx !== lastPhaseIdx) {
+      lastPhaseIdx = idx;
+      const body = document.body;
+      body.className = phase.type;
+      body.classList.add('flash');
+      setTimeout(() => body.classList.remove('flash'), 700);
+      document.getElementById('phaseLabel').innerHTML =
+        phase.label + '<span class="pulse-dot"></span>';
+      document.getElementById('nextInfo').textContent = phase.nextLabel;
+
+      // Timeline
+      for (let i = 0; i < 4; i++) {
+        document.getElementById('tl' + i).classList.toggle('active', i === idx);
+      }
+    }
+  }
+
+  tick();
+  setInterval(tick, 1000);
+</script>
+</body>
+</html>
